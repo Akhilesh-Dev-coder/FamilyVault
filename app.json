@@ -1,0 +1,44 @@
+{
+  "expo": {
+    "name": "FamilyVault",
+    "slug": "FamilyVault",
+    "owner": "akhilesh.zoro",
+    "version": "1.0.0",
+    "web": {
+      "favicon": "./assets/icon.png"
+    },
+    "experiments": {
+      "tsconfigPaths": true
+    },
+    "plugins": [
+      "expo-font"
+    ],
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.akhilesh.familyapp"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "package": "com.akhilesh.familyapp"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "5a04700d-220e-495c-bcca-cc8a395fc967"
+      }
+    }
+  }
+}
