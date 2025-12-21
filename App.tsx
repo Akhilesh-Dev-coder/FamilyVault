@@ -1,35 +1,66 @@
 // App.tsx (main entry)
 import React, { useState, useEffect } from 'react';
 import { View, ActivityIndicator, Text } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from './firebaseConfig';
-import FamilyTreeApp from './FamilyTreeApp'; // your current App.tsx renamed
-import LoginScreen from 'LoginScreen';
+
+// 🔽 FONT LOADING (THIS FIXES ICONS ON WEB)
+import { useFonts } from 'expo-font';
+import {
+  Ionicons,
+  MaterialIcons,
+  Feather,
+  FontAwesome,
+} from '@expo/vector-icons';
+
+import FamilyTreeApp from './FamilyTreeApp';
+import LoginScreen from './LoginScreen';
 
 export default function App() {
   const [user, setUser] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  const [authLoading, setAuthLoading] = useState(true);
 
+  // 🔑 Load icon fonts (MANDATORY for Expo Web)
+  const [fontsLoaded] = useFonts({
+    ...Ionicons.font,
+    ...MaterialIcons.font,
+    ...Feather.font,
+    ...FontAwesome.font,
+  });
+
+  // 🔐 Firebase auth listener
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setUser(user);
-      setLoading(false);
+      setAuthLoading(false);
     });
+
     return unsubscribe;
   }, []);
 
-  if (loading) {
+  // ⛔ Block render until BOTH auth + fonts are ready
+  if (authLoading || !fontsLoaded) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator size="large" color="#2563eb" />
-        <Text>Loading...</Text>
-      </View>
+      <SafeAreaProvider>
+        <View
+          style={{
+            flex: 1,
+            justifyContent: 'center',
+            alignItems: 'center',
+          }}
+        >
+          <ActivityIndicator size="large" color="#2563eb" />
+          <Text>Loading...</Text>
+        </View>
+      </SafeAreaProvider>
     );
   }
 
-  if (!user) {
-    return <LoginScreen onLoginSuccess={() => {}} />;
-  }
-
-  return <FamilyTreeApp />;
+  return (
+    <SafeAreaProvider>
+      {!user ? <LoginScreen /> : <FamilyTreeApp />}
+    </SafeAreaProvider>
+  );
 }

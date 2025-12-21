@@ -1,5 +1,5 @@
-// firebaseConfig.ts
-import { initializeApp, getApps, getApp } from 'firebase/app';
+// firebaseConfig.web.ts
+import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
@@ -13,18 +13,8 @@ const firebaseConfig = {
   appId: "1:285997356019:web:3ea8c654cce0a26c0ab886",
 };
 
-// 🔒 Prevent re-initialization (Expo reload safe)
-const app = getApps().length === 0
-  ? initializeApp(firebaseConfig)
-  : getApp();
+const app = initializeApp(firebaseConfig);
 
-// ✅ Universal auth (works for Android + Web + PWA)
 export const auth = getAuth(app);
-
-// ✅ Firestore
 export const db = getFirestore(app);
-
-// ✅ Storage
 export const storage = getStorage(app);
-
-export default app;
