@@ -5,7 +5,16 @@
     "owner": "akhilesh.zoro",
     "version": "1.0.0",
     "web": {
-      "favicon": "./assets/icon.png"
+      "favicon": "./assets/icon.png",
+      "name": "Family Vault",
+      "shortName": "FamilyVault",
+      "display": "standalone",
+      "themeColor": "#2563eb",
+      "backgroundColor": "#ffffff",
+      "startUrl": "/",
+      "lang": "en",
+      "orientation": "portrait",
+      "bundler": "metro"
     },
     "experiments": {
       "tsconfigPaths": true

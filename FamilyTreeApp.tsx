@@ -19,6 +19,7 @@ import {
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import ProgramsScreen from './ProgramsScreen';
 // 🔽 Firebase
 import { db, auth, storage } from './firebaseConfig';
 import { collection, getDocs } from 'firebase/firestore';
@@ -66,6 +67,147 @@ const { width } = Dimensions.get('window');
 // 🔽 Global image URL cache
 const imageUrlCache = new Map<string, string | null>();
 
+// 🔽 Get image source with cache
+const getImageSource = (member: FamilyMember) => {
+  if (!member.image) return null;
+
+  if (typeof member.image === 'object') {
+    return member.image;
+  }
+
+  const cachedUrl = imageUrlCache.get(member.image);
+  if (cachedUrl) {
+    return { uri: cachedUrl };
+  }
+
+  return null;
+};
+
+// 🔽 Member Card Component for Animations
+const MemberCard = ({
+  member,
+  isFavorite,
+  onPress,
+  onImagePress,
+  onToggleFavorite,
+  isDarkMode,
+  themedStyles
+}: {
+  member: FamilyMember;
+  isFavorite: boolean;
+  onPress: () => void;
+  onImagePress: () => void;
+  onToggleFavorite: () => void;
+  isDarkMode: boolean;
+  themedStyles: any;
+}) => {
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    if (isFavorite) {
+      Animated.sequence([
+        Animated.spring(scaleAnim, {
+          toValue: 1.5,
+          friction: 3,
+          tension: 40,
+          useNativeDriver: true,
+        }),
+        Animated.spring(scaleAnim, {
+          toValue: 1,
+          friction: 3,
+          tension: 40,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+  }, [isFavorite]);
+
+  const imageSource = getImageSource(member);
+
+  // 🔽 Dynamic Theme Colors
+  const accentColor = isDarkMode ? '#e11d48' : '#2563eb'; // Rose (Dark) vs Royal Blue (Light)
+  const favoriteBg = isDarkMode ? '#4c0519' : '#eff6ff'; // Deep Rose (Dark) vs Soft Blue (Light)
+
+  return (
+    <TouchableOpacity
+      style={[
+        themedStyles.card,
+        isFavorite && {
+          borderColor: accentColor,
+          borderWidth: 1.5,
+          backgroundColor: favoriteBg
+        }
+      ]}
+      onPress={onPress}
+      activeOpacity={0.7}
+    >
+      <View style={styles.cardContent}>
+        <TouchableOpacity onPress={onImagePress}>
+          {imageSource ? (
+            <Image
+              source={imageSource}
+              style={[
+                styles.cardImage,
+                isFavorite && { borderWidth: 2, borderColor: accentColor }
+              ]}
+            />
+          ) : (
+            <View style={[styles.cardImage, styles.placeholderImage]}>
+              <MaterialIcons
+                name="person"
+                size={24}
+                color={isDarkMode ? '#9ca3af' : '#6b7280'}
+              />
+            </View>
+          )}
+          {isFavorite && (
+            <View style={styles.favoriteOverlay}>
+              <FontAwesome name="heart" size={16} color={accentColor} />
+            </View>
+          )}
+        </TouchableOpacity>
+        <View style={styles.memberInfo}>
+          <View style={styles.nameRow}>
+            <Text
+              style={themedStyles.memberName}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+            >
+              {member.name}
+              {member.status === 'Deceased' && ' (Deceased)'}
+            </Text>
+            <TouchableOpacity
+              onPress={onToggleFavorite}
+              style={styles.favoriteButton}
+            >
+              <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
+                <FontAwesome
+                  name={isFavorite ? 'heart' : 'heart-o'}
+                  size={24}
+                  color={isFavorite ? accentColor : '#d1d5db'}
+                />
+              </Animated.View>
+            </TouchableOpacity>
+          </View>
+          {member.occupation && (
+            <Text style={themedStyles.memberOccupation}>
+              {member.occupation}
+            </Text>
+          )}
+          {member.address && (
+            <Text
+              style={themedStyles.memberAddress}
+              numberOfLines={1}
+            >
+              {member.address}
+            </Text>
+          )}
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
+};
+
 export default function App() {
   const [familyTrees, setFamilyTrees] = useState<FamilyMember[]>([]);
   const [memberStack, setMemberStack] = useState<FamilyMember[]>([]);
@@ -76,15 +218,34 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [favorites, setFavorites] = useState<Set<string>>(new Set());
   const [greetingMessage, setGreetingMessage] = useState('');
+  const [showPrograms, setShowPrograms] = useState(false);
+  const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const [user, setUser] = useState<any>(null);
   const [loadingAuth, setLoadingAuth] = useState(true);
-  
+
+
+  const [hasActivePrograms, setHasActivePrograms] = useState(false);
 
   // Animation refs
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(-100)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const imageScaleAnim = useRef(new Animated.Value(1)).current;
+
+  // 🔥 Check for active programs
+  const checkActivePrograms = async () => {
+    try {
+      const querySnapshot = await getDocs(collection(db, 'programs'));
+      // Check if ANY program is visible and Upcoming
+      const hasActive = querySnapshot.docs.some(doc => {
+        const data = doc.data();
+        return data.visibility === true && data.status === 'Upcoming';
+      });
+      setHasActivePrograms(hasActive);
+    } catch (error) {
+      console.warn("Error checking programs:", error);
+    }
+  };
 
   // 🔥 Load image URL for a single member
   const loadImageForMember = async (member: FamilyMember): Promise<FamilyMember> => {
@@ -124,6 +285,9 @@ export default function App() {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setUser(user);
       setLoadingAuth(false);
+      if (user) {
+        checkActivePrograms();
+      }
     });
     return unsubscribe;
   }, []);
@@ -183,6 +347,10 @@ export default function App() {
     const newFavorites = new Set(favorites);
     if (newFavorites.has(memberId)) {
       newFavorites.delete(memberId);
+      // If we are in "Favorites Only" mode and just removed the last favorite, go back to all
+      if (showFavoritesOnly && newFavorites.size === 0) {
+        setShowFavoritesOnly(false);
+      }
     } else {
       newFavorites.add(memberId);
       if (Platform.OS !== 'web') Vibration.vibrate(100);
@@ -190,18 +358,18 @@ export default function App() {
     setFavorites(newFavorites);
   };
 
-const openImageModal = (memberWithImage: FamilyMember) => {
-  setSelectedImage(memberWithImage.image);   // must be { uri: ... }
-  setSelectedImageName(memberWithImage.name);
-  setShowImageModal(true);
+  const openImageModal = (memberWithImage: FamilyMember) => {
+    setSelectedImage(memberWithImage.image);   // must be { uri: ... }
+    setSelectedImageName(memberWithImage.name);
+    setShowImageModal(true);
 
-  Animated.spring(imageScaleAnim, {
-    toValue: 1.1,
-    tension: 100,
-    friction: 8,
-    useNativeDriver: true,
-  }).start();
-};
+    Animated.spring(imageScaleAnim, {
+      toValue: 1.1,
+      tension: 100,
+      friction: 8,
+      useNativeDriver: true,
+    }).start();
+  };
 
 
   const closeImageModal = () => {
@@ -233,17 +401,12 @@ ${member.status ? `Status: ${member.status}\n` : ''}${member.age ? `Age: ${membe
     const allMembers = familyTrees.flatMap((tree) => flattenTree(tree));
     const total = allMembers.length;
     const living = allMembers.filter((m) => m.status !== 'Deceased').length;
-    const avgAge = allMembers
-      .filter((m) => m.age)
-      .reduce((sum, m) => sum + parseInt(m.age || '0'), 0);
-    const uniqueAges = allMembers.filter((m) => m.age).length;
-    const avg = uniqueAges > 0 ? Math.round(avgAge / uniqueAges) : 0;
+
     Alert.alert(
       'Family Statistics',
       `Total Members: ${total}
 Living: ${living}
 Deceased: ${total - living}
-Average Age: ${avg} years
 Favorites: ${favorites.size}`,
       [{ text: 'Got it', style: 'default' }]
     );
@@ -383,21 +546,7 @@ Favorites: ${favorites.size}`,
       .substring(0, 2);
   };
 
-  // 🔽 Get image source with cache
-  const getImageSource = (member: FamilyMember) => {
-    if (!member.image) return null;
-    
-    if (typeof member.image === 'object') {
-      return member.image;
-    }
 
-    const cachedUrl = imageUrlCache.get(member.image);
-    if (cachedUrl) {
-      return { uri: cachedUrl };
-    }
-
-    return null;
-  };
 
   if (loadingAuth) {
     return (
@@ -416,19 +565,58 @@ Favorites: ${favorites.size}`,
 
   const themedStyles = getThemedStyles();
   const allMembers = familyTrees.flatMap((tree) => flattenTree(tree));
-  const filteredFamilies = searchQuery
-    ? allMembers.filter((member) =>
+  const filteredFamilies = (() => {
+    let result = familyTrees;
+
+    // 1. Search Filter
+    if (searchQuery) {
+      result = allMembers.filter((member) =>
         member.name.toLowerCase().includes(searchQuery.toLowerCase())
-      )
-    : familyTrees;
+      );
+    } else {
+      // If not searching, we might still be viewing the "tree" structure (families state).
+      // But if we filter by favorites, we need flat members usually?
+      // Actually, if we are just showing cards, let's use allMembers if searching OR filtering.
+      // If we are showing the default screen, it maps `filteredFamilies`.
+      // The original code used `familyTrees` for default, which is `FamilyMember[]` roots.
+      // `allMembers` is flat.
+      // If we filter by favorites, checking roots isn't enough if a child is favorite.
+      // So if showFavoritesOnly is true, we should flatten.
+      if (showFavoritesOnly) {
+        result = allMembers.filter(m => favorites.has(m.id));
+      }
+    }
+
+    // If we are searching AND filtering by favorites?
+    if (searchQuery && showFavoritesOnly) {
+      result = result.filter(m => favorites.has(m.id));
+    }
+
+    return result;
+  })();
 
   const isSearching = searchQuery.length > 0;
   const showDetailModal = memberStack.length > 0;
   const currentMember = memberStack[memberStack.length - 1];
 
-  const pushMember = async (member: FamilyMember) => {
-    const memberWithImage = await loadImageForMember(member);
-    setMemberStack((prev) => [...prev, memberWithImage]);
+  const pushMember = (member: FamilyMember) => {
+    // 1. Navigate immediately (show placeholder if not cached)
+    setMemberStack((prev) => [...prev, member]);
+
+    // 2. Load image in background if needed
+    if (member.image && typeof member.image === 'string') {
+      // Check cache synchronously first to avoid duplicate fetch if possible (though loadImage checks too)
+      if (imageUrlCache.has(member.image)) {
+        const cached = imageUrlCache.get(member.image);
+        const updated = { ...member, image: cached ? { uri: cached } : null };
+        // Update the stack item we just pushed
+        setMemberStack(prev => prev.map(m => m.id === member.id ? updated : m));
+      } else {
+        loadImageForMember(member).then(updatedMember => {
+          setMemberStack(prev => prev.map(m => m.id === member.id ? updatedMember : m));
+        });
+      }
+    }
   };
 
   const popMember = () => {
@@ -438,168 +626,159 @@ Favorites: ${favorites.size}`,
   return (
     <SafeAreaView style={themedStyles.container}>
       <StatusBar style={isDarkMode ? 'light' : 'dark'} />
-      {/* Header */}
-      <Animated.View
-        style={[
-          themedStyles.header,
-          {
-            opacity: fadeAnim,
-            transform: [{ translateY: slideAnim }],
-          },
-        ]}
-      >
-        <View style={styles.greetingRow}>
-          <Text style={themedStyles.greetingText}>{greetingMessage}</Text>
-          <TouchableOpacity onPress={showMemberStats} style={styles.statsButton}>
-            <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
-              <MaterialIcons
-                name="bar-chart"
-                size={24}
-                color={isDarkMode ? '#fbbf24' : '#059669'}
-              />
-            </Animated.View>
-          </TouchableOpacity>
-        </View>
-        <View style={styles.headerRow}>
-          <Text style={themedStyles.headerTitle}>Family Tree</Text>
-          <TouchableOpacity
-            onPress={toggleDarkMode}
+      {showPrograms ? (
+        <ProgramsScreen onClose={() => setShowPrograms(false)} />
+      ) : (
+        <>
+          {/* Header */}
+          <Animated.View
             style={[
-              styles.toggleContainer,
+              themedStyles.header,
               {
-                backgroundColor: isDarkMode ? '#374151' : '#f1f5f9',
+                opacity: fadeAnim,
+                transform: [{ translateY: slideAnim }],
               },
             ]}
           >
-            <Ionicons
-              name={isDarkMode ? 'sunny' : 'moon'}
-              size={20}
-              color={isDarkMode ? '#fbbf24' : '#374151'}
-            />
-            <Switch
-              value={isDarkMode}
-              onValueChange={toggleDarkMode}
-              thumbColor={isDarkMode ? '#fbbf24' : '#ffffff'}
-              trackColor={{ false: '#d1d5db', true: '#374151' }}
-            />
-          </TouchableOpacity>
-        </View>
-        <View style={styles.statsRow}>
-          <Text style={themedStyles.headerSubtitle}>
-            {filteredFamilies.length} {isSearching ? 'members' : 'families'} • {favorites.size} favorites
-          </Text>
-          {favorites.size > 0 && (
-            <View style={styles.favoritesBadge}>
-              <FontAwesome name="heart" size={12} color="#ffffff" />
-              <Text style={styles.favoritesText}>{favorites.size}</Text>
+            <View style={styles.greetingRow}>
+              <Text style={themedStyles.greetingText}>{greetingMessage}</Text>
+              <View style={{ flexDirection: 'row', gap: 12 }}>
+                <TouchableOpacity onPress={() => setShowPrograms(true)} style={styles.statsButton}>
+                  <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
+                    <MaterialIcons
+                      name="event"
+                      size={24}
+                      color={isDarkMode ? '#fbbf24' : '#059669'}
+                    />
+                    {hasActivePrograms && (
+                      <View style={{
+                        position: 'absolute',
+                        top: -2,
+                        right: -3,
+                        width: 10,
+                        height: 10,
+                        borderRadius: 5,
+                        backgroundColor: '#10b981', // Green
+                        borderWidth: 1.5,
+                        borderColor: isDarkMode ? '#1f2937' : '#ffffff'
+                      }} />
+                    )}
+                  </Animated.View>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={showMemberStats} style={styles.statsButton}>
+                  <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
+                    <MaterialIcons
+                      name="bar-chart"
+                      size={24}
+                      color={isDarkMode ? '#fbbf24' : '#059669'}
+                    />
+                  </Animated.View>
+                </TouchableOpacity>
+              </View>
             </View>
-          )}
-        </View>
-        {/* Search */}
-        <View style={styles.searchContainer}>
-          <Feather
-            name="search"
-            size={20}
-            color={isDarkMode ? '#9ca3af' : '#6b7280'}
-            style={styles.searchIcon}
-          />
-          <TextInput
-            style={themedStyles.searchInput}
-            placeholder="Search anyone in the family..."
-            placeholderTextColor={isDarkMode ? '#9ca3af' : '#6b7280'}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-          />
-          {searchQuery.length > 0 && (
-            <TouchableOpacity
-              onPress={() => setSearchQuery('')}
-              style={styles.clearButton}
-            >
-              <Text style={{ fontSize: 20, color: isDarkMode ? '#9ca3af' : '#6b7280' }}>
-                ×
-              </Text>
-            </TouchableOpacity>
-          )}
-        </View>
-      </Animated.View>
-
-      {/* Family List */}
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
-        {filteredFamilies.length > 0 ? (
-          filteredFamilies.map((member) => {
-            const imageSource = getImageSource(member);
-            return (
+            <View style={styles.headerRow}>
+              <Text style={themedStyles.headerTitle}>Family Tree</Text>
               <TouchableOpacity
-                key={member.id}
+                onPress={toggleDarkMode}
                 style={[
-                  themedStyles.card,
-                  favorites.has(member.id) && styles.favoriteCard,
+                  styles.toggleContainer,
+                  {
+                    backgroundColor: isDarkMode ? '#374151' : '#f1f5f9',
+                  },
                 ]}
-                onPress={() => pushMember(member)}
-                activeOpacity={0.7}
               >
-                <View style={styles.cardContent}>
-                  <TouchableOpacity
-                    onPress={() => openImageModal(member)}
-                  >
-                    {imageSource ? (
-                      <Image
-                        source={imageSource}
-                        style={[styles.cardImage, favorites.has(member.id) && styles.favoriteImage]}
-                      />
-                    ) : (
-                      <View style={[styles.cardImage, styles.placeholderImage]}>
-                        <MaterialIcons name="person" size={24} color={isDarkMode ? '#9ca3af' : '#6b7280'} />
-                      </View>
-                    )}
-                    {favorites.has(member.id) && (
-                      <View style={styles.favoriteOverlay}>
-                        <FontAwesome name="heart" size={16} color="#ff6b6b" />
-                      </View>
-                    )}
-                  </TouchableOpacity>
-                  <View style={styles.memberInfo}>
-                    <View style={styles.nameRow}>
-                      <Text style={themedStyles.memberName} numberOfLines={1} ellipsizeMode="tail">
-                        {member.name}
-                        {member.status === 'Deceased' && ' (Deceased)'}
-                      </Text>
-                      <TouchableOpacity
-                        onPress={() => toggleFavorite(member.id)}
-                        style={styles.favoriteButton}
-                      >
-                        <FontAwesome
-                          name={favorites.has(member.id) ? 'heart' : 'heart-o'}
-                          size={20}
-                          color="#ff6b6b"
-                        />
-                      </TouchableOpacity>
-                    </View>
-                    {member.occupation && (
-                      <Text style={themedStyles.memberOccupation}>{member.occupation}</Text>
-                    )}
-                    {member.address && (
-                      <Text style={themedStyles.memberAddress} numberOfLines={1}>
-                        {member.address}
-                      </Text>
-                    )}
-                  </View>
-                </View>
+                <Ionicons
+                  name={isDarkMode ? 'sunny' : 'moon'}
+                  size={20}
+                  color={isDarkMode ? '#fbbf24' : '#374151'}
+                />
+                <Switch
+                  value={isDarkMode}
+                  onValueChange={toggleDarkMode}
+                  thumbColor={isDarkMode ? '#fbbf24' : '#ffffff'}
+                  trackColor={{ false: '#d1d5db', true: '#374151' }}
+                />
               </TouchableOpacity>
-            );
-          })
-        ) : (
-          <Animated.View style={[styles.noResults, { opacity: fadeAnim }]}>
-            <Feather name="search" size={48} color={isDarkMode ? '#4b5563' : '#d1d5db'} />
-            <Text style={{ fontSize: 16, color: isDarkMode ? '#d1d5db' : '#6b7280', marginTop: 16 }}>
-              No results found
-            </Text>
-            <Text style={{ color: isDarkMode ? '#9ca3af' : '#9ca3af', fontSize: 14, marginTop: 8 }}>
-              Try another name
-            </Text>
+            </View>
+            <View style={styles.statsRow}>
+              <Text style={themedStyles.headerSubtitle}>
+                {filteredFamilies.length} {isSearching ? 'members' : 'families'} • {favorites.size} favorites
+              </Text>
+              {favorites.size > 0 && (
+                <TouchableOpacity
+                  onPress={() => setShowFavoritesOnly(!showFavoritesOnly)}
+                  style={[
+                    styles.favoritesBadge,
+                    showFavoritesOnly && { backgroundColor: isDarkMode ? '#e11d48' : '#2563eb' }
+                  ]}
+                >
+                  <FontAwesome name={showFavoritesOnly ? "heart" : "heart-o"} size={12} color="#ffffff" />
+                  <Text style={styles.favoritesText}>
+                    {showFavoritesOnly ? 'Showing Favorites' : favorites.size}
+                  </Text>
+                  {showFavoritesOnly && (
+                    <Ionicons name="close-circle" size={14} color="white" style={{ marginLeft: 4 }} />
+                  )}
+                </TouchableOpacity>
+              )}
+            </View>
+            {/* Search */}
+            <View style={styles.searchContainer}>
+              <Feather
+                name="search"
+                size={20}
+                color={isDarkMode ? '#9ca3af' : '#6b7280'}
+                style={styles.searchIcon}
+              />
+              <TextInput
+                style={themedStyles.searchInput}
+                placeholder="Search anyone in the family..."
+                placeholderTextColor={isDarkMode ? '#9ca3af' : '#6b7280'}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+              />
+              {searchQuery.length > 0 && (
+                <TouchableOpacity
+                  onPress={() => setSearchQuery('')}
+                  style={styles.clearButton}
+                >
+                  <Text style={{ fontSize: 20, color: isDarkMode ? '#9ca3af' : '#6b7280' }}>
+                    ×
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
           </Animated.View>
-        )}
-      </ScrollView>
+
+          {/* Family List */}
+          <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+            {filteredFamilies.length > 0 ? (
+              filteredFamilies.map((member) => (
+                <MemberCard
+                  key={member.id}
+                  member={member}
+                  isFavorite={favorites.has(member.id)}
+                  onPress={() => pushMember(member)}
+                  onImagePress={() => openImageModal(member)}
+                  onToggleFavorite={() => toggleFavorite(member.id)}
+                  isDarkMode={isDarkMode}
+                  themedStyles={themedStyles}
+                />
+              ))
+            ) : (
+              <Animated.View style={[styles.noResults, { opacity: fadeAnim }]}>
+                <Feather name="search" size={48} color={isDarkMode ? '#4b5563' : '#d1d5db'} />
+                <Text style={{ fontSize: 16, color: isDarkMode ? '#d1d5db' : '#6b7280', marginTop: 16 }}>
+                  No results found
+                </Text>
+                <Text style={{ color: isDarkMode ? '#9ca3af' : '#9ca3af', fontSize: 14, marginTop: 8 }}>
+                  Try another name
+                </Text>
+              </Animated.View>
+            )}
+          </ScrollView>
+        </>
+      )}
 
       {/* Detail Modal */}
       <Modal visible={showDetailModal} animationType="slide" presentationStyle="pageSheet">
@@ -610,7 +789,11 @@ Favorites: ${favorites.size}`,
               { borderBottomColor: isDarkMode ? '#374151' : '#e5e7eb' },
             ]}
           >
-            <TouchableOpacity onPress={popMember}>
+            <TouchableOpacity
+              onPress={popMember}
+              hitSlop={{ top: 15, bottom: 15, left: 20, right: 40 }}
+              style={{ padding: 8, marginLeft: -8 }}
+            >
               <Text style={styles.closeButton}>Back</Text>
             </TouchableOpacity>
             <Text style={themedStyles.modalTitle}>Profile</Text>
@@ -681,7 +864,7 @@ Favorites: ${favorites.size}`,
                     style={[styles.actionButton, { backgroundColor: '#3b82f6' }]}
                     onPress={() => sendSMS(currentMember.phone)}
                   >
-                    <Feather name="message" size={20} color="white" />
+                    <Feather name="message-circle" size={20} color="white" />
                     <Text style={styles.actionButtonText}>Message</Text>
                   </TouchableOpacity>
                 )}
@@ -732,48 +915,47 @@ Favorites: ${favorites.size}`,
                 )}
 
                 {/* SPOUSE */}
-{/* SPOUSE */}
-{currentMember.spouseObj && (
-  <View style={themedStyles.detailCard}>
-    <Text style={themedStyles.detailLabel}>SPOUSE</Text>
-    <TouchableOpacity
-      style={styles.childRow}
-      onPress={() => pushMember(currentMember.spouseObj!)}
-    >
-      { (() => {
-          const spouseImageSource = getImageSource(currentMember.spouseObj!);
-          return spouseImageSource ? (
-            <Image source={spouseImageSource} style={styles.childImage} />
-          ) : (
-            <View style={[styles.childImage, styles.placeholderChildImage]}>
-              <MaterialIcons name="person" size={16} color={isDarkMode ? '#9ca3af' : '#6b7280'} />
-            </View>
-          );
-        })()
-      }
-      <View style={styles.childInfo}>
-        <Text style={themedStyles.memberName}>
-          {currentMember.spouseObj.name}
-        </Text>
-        {currentMember.spouseObj.occupation && (
-          <Text style={themedStyles.memberOccupation}>
-            {currentMember.spouseObj.occupation}
-          </Text>
-        )}
-        {currentMember.spouseObj.address && (
-          <Text style={themedStyles.memberAddress} numberOfLines={1}>
-            {currentMember.spouseObj.address}
-          </Text>
-        )}
-      </View>
-      <Feather
-        name="chevron-right"
-        size={18}
-        color={isDarkMode ? '#d1d5db' : '#6b7280'}
-      />
-    </TouchableOpacity>
-  </View>
-)}
+                {currentMember.spouseObj && (
+                  <View style={themedStyles.detailCard}>
+                    <Text style={themedStyles.detailLabel}>SPOUSE</Text>
+                    <TouchableOpacity
+                      style={styles.childRow}
+                      onPress={() => pushMember(currentMember.spouseObj!)}
+                    >
+                      {(() => {
+                        const spouseImageSource = getImageSource(currentMember.spouseObj!);
+                        return spouseImageSource ? (
+                          <Image source={spouseImageSource} style={styles.childImage} />
+                        ) : (
+                          <View style={[styles.childImage, styles.placeholderChildImage]}>
+                            <MaterialIcons name="person" size={16} color={isDarkMode ? '#9ca3af' : '#6b7280'} />
+                          </View>
+                        );
+                      })()
+                      }
+                      <View style={styles.childInfo}>
+                        <Text style={themedStyles.memberName}>
+                          {currentMember.spouseObj.name}
+                        </Text>
+                        {currentMember.spouseObj.occupation && (
+                          <Text style={themedStyles.memberOccupation}>
+                            {currentMember.spouseObj.occupation}
+                          </Text>
+                        )}
+                        {currentMember.spouseObj.address && (
+                          <Text style={themedStyles.memberAddress} numberOfLines={1}>
+                            {currentMember.spouseObj.address}
+                          </Text>
+                        )}
+                      </View>
+                      <Feather
+                        name="chevron-right"
+                        size={18}
+                        color={isDarkMode ? '#d1d5db' : '#6b7280'}
+                      />
+                    </TouchableOpacity>
+                  </View>
+                )}
 
 
                 {/* CHILDREN */}
@@ -848,15 +1030,15 @@ Favorites: ${favorites.size}`,
               onPress={closeImageModal}
             >
               {selectedImage && (
-  <Animated.Image
-    source={{ uri: selectedImage.uri }}
-    style={[
-      styles.imageModalImage,
-      { transform: [{ scale: imageScaleAnim }] },
-    ]}
-    resizeMode="contain"
-  />
-)}
+                <Animated.Image
+                  source={{ uri: selectedImage.uri }}
+                  style={[
+                    styles.imageModalImage,
+                    { transform: [{ scale: imageScaleAnim }] },
+                  ]}
+                  resizeMode="contain"
+                />
+              )}
 
             </TouchableOpacity>
           </View>
@@ -907,8 +1089,8 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 28, fontWeight: 'bold', color: '#111827' },
   headerSubtitle: { fontSize: 14, color: '#6b7280' },
   statsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
-  favoritesBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#ff6b6b', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, gap: 4 },
-  favoritesText: { color: '#ffffff', fontSize: 12, fontWeight: '600' },
+  favoritesBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#9ca3af', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20, gap: 6 },
+  favoritesText: { color: '#ffffff', fontSize: 12, fontWeight: '700' },
   toggleContainer: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, paddingHorizontal: 10, borderRadius: 20, gap: 6 },
   searchContainer: { flexDirection: 'row', alignItems: 'center', position: 'relative' },
   searchIcon: { position: 'absolute', left: 16, zIndex: 1 },
@@ -917,7 +1099,6 @@ const styles = StyleSheet.create({
   scrollView: { flex: 1 },
   scrollContent: { paddingHorizontal: 12, paddingBottom: 20 },
   card: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 12, marginBottom: 16, borderRadius: 16, padding: 14, borderWidth: 1, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
-  favoriteCard: { borderColor: '#ff6b6b', borderWidth: 2, backgroundColor: 'rgba(255, 107, 107, 0.05)' },
   cardContent: { flexDirection: 'row', alignItems: 'center', flex: 1 },
   cardImage: { width: 60, height: 60, borderRadius: 30, marginRight: 16 },
   placeholderImage: {
@@ -926,8 +1107,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderRadius: 30,
   },
-  favoriteImage: { borderWidth: 2, borderColor: '#ff6b6b' },
-  favoriteOverlay: { position: 'absolute', top: -4, right: 12, backgroundColor: '#ffffff', borderRadius: 12, padding: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 2, elevation: 2 },
+  favoriteOverlay: { position: 'absolute', top: -4, right: 12, backgroundColor: '#ffffff', borderRadius: 12, padding: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 2, elevation: 2 },
   memberInfo: { flex: 1 },
   nameRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   memberName: { fontSize: 18, fontWeight: 'bold', flex: 1 },
@@ -976,9 +1156,9 @@ const styles = StyleSheet.create({
   imageModalImageContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   imageModalImageTouchable: { flex: 1, width: '100%', justifyContent: 'center', alignItems: 'center' },
   imageModalImage: {
-  width: '100%',
-  height: '100%',
-},
+    width: '100%',
+    height: '100%',
+  },
   childRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 8, backgroundColor: 'rgba(37, 99, 235, 0.05)', borderRadius: 12, marginTop: 8 },
   childImage: { width: 40, height: 40, borderRadius: 20, marginRight: 12 },
   placeholderChildImage: {
