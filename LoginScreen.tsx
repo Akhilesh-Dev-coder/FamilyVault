@@ -1,5 +1,5 @@
 // LoginScreen.tsx
-import React, { useState } from 'react';
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -9,26 +9,29 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
-} from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
-import { auth } from './firebaseConfig';
+} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import {
+  signInWithEmailAndPassword,
+  sendPasswordResetEmail,
+} from "firebase/auth";
+import { auth } from "./firebaseConfig";
 
 interface LoginScreenProps {
   onNavigate: () => void;
 }
 
 const LoginScreen = ({ onNavigate }: LoginScreenProps) => {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
-  const APP_NAME = 'Family Tree';
+  const APP_NAME = "Family Tree";
 
   const handleLogin = async () => {
     if (!email.trim() || !password.trim()) {
-      Alert.alert('Error', 'Please enter both email and password');
+      Alert.alert("Error", "Please enter both email and password");
       return;
     }
 
@@ -37,9 +40,12 @@ const LoginScreen = ({ onNavigate }: LoginScreenProps) => {
       await signInWithEmailAndPassword(auth, email, password);
       // On success, Firebase triggers onAuthStateChanged → shows family tree
     } catch (error: any) {
-      console.error('Login error:', error);
-      Alert.alert('Login Failed', 'Incorrect email or password. Please try again.');
-      setPassword('');
+      console.error("Login error:", error);
+      Alert.alert(
+        "Login Failed",
+        "Incorrect email or password. Please try again."
+      );
+      setPassword("");
     } finally {
       setLoading(false);
     }
@@ -47,33 +53,39 @@ const LoginScreen = ({ onNavigate }: LoginScreenProps) => {
 
   const handleForgotPassword = async () => {
     if (!email.trim()) {
-      Alert.alert('Reset Password', 'Please enter your email address in the field above to reset your password.');
+      Alert.alert(
+        "Reset Password",
+        "Please enter your email address in the field above to reset your password."
+      );
       return;
     }
 
     try {
       await sendPasswordResetEmail(auth, email);
-      Alert.alert('Email Sent', 'Check your email for a link to reset your password.');
+      Alert.alert(
+        "Email Sent",
+        "Check your email for a link to reset your password."
+      );
     } catch (error: any) {
       console.error("Reset password error", error);
-      Alert.alert('Error', error.message);
+      Alert.alert("Error", error.message);
     }
   };
 
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
       <View style={styles.card}>
         <Text style={styles.title}>{APP_NAME}</Text>
         <Text style={styles.subtitle}>Sign in to your account</Text>
 
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>Email Address</Text>
+          <Text style={styles.label}>Email</Text>
           <TextInput
             style={styles.input}
-            placeholder="john@example.com"
+            placeholder="Enter your email"
             placeholderTextColor="#9CA3AF"
             value={email}
             onChangeText={setEmail}
@@ -103,7 +115,7 @@ const LoginScreen = ({ onNavigate }: LoginScreenProps) => {
               style={styles.eyeButton}
             >
               <Text style={styles.eyeText}>
-                {showPassword ? 'Hide' : 'Show'}
+                {showPassword ? "Hide" : "Show"}
               </Text>
             </TouchableOpacity>
           </View>
@@ -121,7 +133,7 @@ const LoginScreen = ({ onNavigate }: LoginScreenProps) => {
           disabled={loading}
         >
           <Text style={styles.buttonText}>
-            {loading ? 'Logging in...' : 'Log In'}
+            {loading ? "Logging in..." : "Log In"}
           </Text>
         </TouchableOpacity>
 
@@ -132,7 +144,7 @@ const LoginScreen = ({ onNavigate }: LoginScreenProps) => {
           </TouchableOpacity>
         </View>
       </View>
-    </KeyboardAvoidingView >
+    </KeyboardAvoidingView>
   );
 };
 
@@ -141,15 +153,15 @@ export default LoginScreen;
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f3f4f6',
-    justifyContent: 'center',
+    backgroundColor: "#f3f4f6",
+    justifyContent: "center",
     padding: 20,
   },
   card: {
-    backgroundColor: 'white',
+    backgroundColor: "white",
     borderRadius: 20,
     padding: 24,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
     shadowRadius: 12,
@@ -157,15 +169,15 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 28,
-    fontWeight: 'bold',
-    textAlign: 'center',
+    fontWeight: "bold",
+    textAlign: "center",
     marginBottom: 8,
-    color: '#111827',
+    color: "#111827",
   },
   subtitle: {
     fontSize: 16,
-    color: '#6b7280',
-    textAlign: 'center',
+    color: "#6b7280",
+    textAlign: "center",
     marginBottom: 24,
   },
   inputGroup: {
@@ -173,40 +185,40 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 14,
-    fontWeight: '600',
-    color: '#374151',
+    fontWeight: "600",
+    color: "#374151",
     marginBottom: 6,
   },
   input: {
     borderWidth: 1,
-    borderColor: '#d1d5db',
+    borderColor: "#d1d5db",
     borderRadius: 12,
     padding: 14,
     fontSize: 16,
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
   },
   button: {
-    backgroundColor: '#2563eb',
+    backgroundColor: "#2563eb",
     paddingVertical: 14,
     borderRadius: 12,
-    alignItems: 'center',
+    alignItems: "center",
     marginTop: 8,
   },
   buttonDisabled: {
     opacity: 0.7,
   },
   buttonText: {
-    color: 'white',
+    color: "white",
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   passwordRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     borderWidth: 1,
-    borderColor: '#d1d5db',
+    borderColor: "#d1d5db",
     borderRadius: 12,
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
   },
   passwordInput: {
     flex: 1,
@@ -217,30 +229,30 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   eyeText: {
-    color: '#2563eb',
-    fontWeight: '600',
+    color: "#2563eb",
+    fontWeight: "600",
   },
   footerContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
+    flexDirection: "row",
+    justifyContent: "center",
     marginTop: 24,
   },
   footerText: {
     fontSize: 14,
-    color: '#6b7280',
+    color: "#6b7280",
   },
   linkText: {
     fontSize: 14,
-    color: '#2563eb',
-    fontWeight: '600',
+    color: "#2563eb",
+    fontWeight: "600",
   },
   forgotButton: {
-    alignSelf: 'flex-end',
+    alignSelf: "flex-end",
     marginTop: 8,
   },
   forgotText: {
-    color: '#2563eb',
+    color: "#2563eb",
     fontSize: 14,
-    fontWeight: '500',
+    fontWeight: "500",
   },
 });
