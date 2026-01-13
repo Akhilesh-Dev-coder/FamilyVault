@@ -1,13 +1,14 @@
 {
   "expo": {
-    "name": "FamilyVault",
+    "name": "Palakunnil kudumbayogam",
     "slug": "FamilyVault",
     "owner": "akhilesh.zoro",
     "version": "1.0.0",
     "web": {
       "favicon": "./assets/icon.png",
-      "name": "Family Vault",
+      "name": "Palakunnil kudumbayogam",
       "shortName": "FamilyVault",
+      "description": "Family Tree Application for Palakunnil kudumbayogam",
       "display": "standalone",
       "themeColor": "#2563eb",
       "backgroundColor": "#ffffff",
@@ -19,20 +20,16 @@
     "experiments": {
       "tsconfigPaths": true
     },
-    "plugins": [
-      "expo-font"
-    ],
+    "plugins": ["expo-font"],
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "splash": {
-      "image": "./assets/icon.png",
+      "image": "./assets/splash.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
-    "assetBundlePatterns": [
-      "**/*"
-    ],
+    "assetBundlePatterns": ["**/*"],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.akhilesh.familyapp"

@@ -1,25 +1,25 @@
 // App.tsx (main entry)
-import React, { useState, useEffect } from 'react';
-import { View, ActivityIndicator, Text } from 'react-native';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import React, { useState, useEffect } from "react";
+import { View, ActivityIndicator, Text, Platform } from "react-native";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 
-import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { auth, db } from './firebaseConfig';
-import { doc, getDoc } from 'firebase/firestore';
-import { Alert } from 'react-native';
+import { onAuthStateChanged, signOut } from "firebase/auth";
+import { auth, db } from "./firebaseConfig";
+import { doc, getDoc } from "firebase/firestore";
+import { Alert } from "react-native";
 
 // 🔽 FONT LOADING (THIS FIXES ICONS ON WEB)
-import { useFonts } from 'expo-font';
+import { useFonts } from "expo-font";
 import {
   Ionicons,
   MaterialIcons,
   Feather,
   FontAwesome,
-} from '@expo/vector-icons';
+} from "@expo/vector-icons";
 
-import FamilyTreeApp from './FamilyTreeApp';
-import LoginScreen from './LoginScreen';
-import SignUpScreen from './SignUpScreen';
+import FamilyTreeApp from "./FamilyTreeApp";
+import LoginScreen from "./LoginScreen";
+import SignUpScreen from "./SignUpScreen";
 
 export default function App() {
   const [user, setUser] = useState<any>(null);
@@ -37,6 +37,23 @@ export default function App() {
 
   // 🔐 Firebase auth listener
   useEffect(() => {
+    // Register Service Worker for PWA (Web only)
+    if (Platform.OS === "web" && "serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("/sw.js").then(
+          (registration) => {
+            console.log(
+              "ServiceWorker registration successful with scope: ",
+              registration.scope
+            );
+          },
+          (err) => {
+            console.log("ServiceWorker registration failed: ", err);
+          }
+        );
+      });
+    }
+
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
         // If we are in the middle of a signup flow that intends to force logout,
@@ -47,13 +64,16 @@ export default function App() {
 
         // User is authenticated, but let's check if they are allowed (Suspended/Deleted)
         try {
-          const userDocRef = doc(db, 'Users', currentUser.uid);
+          const userDocRef = doc(db, "Users", currentUser.uid);
           const userDoc = await getDoc(userDocRef);
 
           if (userDoc.exists()) {
             const userData = userDoc.data();
             if (userData.suspended) {
-              Alert.alert('Access Denied', 'Your account has been suspended by an administrator.');
+              Alert.alert(
+                "Access Denied",
+                "Your account has been suspended by an administrator."
+              );
               await signOut(auth);
               setUser(null);
             } else {
@@ -62,7 +82,10 @@ export default function App() {
             }
           } else {
             // User has Auth but no Firestore doc (Deleted by Admin)
-            Alert.alert('Account Not Found', 'Your user profile has been deleted. Please contact support or sign up again.');
+            Alert.alert(
+              "Account Not Found",
+              "Your user profile has been deleted. Please contact support or sign up again."
+            );
             // Optional: If you want to force them to sign up again, you could keep them logged in but redirect to SignUp?
             // But simpler is to kick them out.
             await signOut(auth);
@@ -72,7 +95,7 @@ export default function App() {
           console.error("Error fetching user profile:", error);
           // If network error, maybe let them in or block? defaulting to block for safety if suspended
           // But for UX, maybe allowed? Let's allow but log.
-          // actually, if we can't verify, we should probably be careful. 
+          // actually, if we can't verify, we should probably be careful.
           // For now, let's assume valid if fetch fails (offline), or handle offline gracefully later.
           setUser(currentUser);
         }
@@ -97,8 +120,8 @@ export default function App() {
         <View
           style={{
             flex: 1,
-            justifyContent: 'center',
-            alignItems: 'center',
+            justifyContent: "center",
+            alignItems: "center",
           }}
         >
           <ActivityIndicator size="large" color="#2563eb" />

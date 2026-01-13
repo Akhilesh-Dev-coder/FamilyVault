@@ -26,7 +26,7 @@ const SignUpScreen = ({ onNavigate, setIsSigningUp }: SignUpScreenProps) => {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
-  const APP_NAME = "Family Tree";
+  const APP_NAME = "Palakunnil kudumbam";
 
   const handleSignUp = async () => {
     if (!name.trim() || !email.trim() || !password.trim()) {
@@ -123,7 +123,7 @@ const SignUpScreen = ({ onNavigate, setIsSigningUp }: SignUpScreenProps) => {
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.card}>
           <Text style={styles.title}>Create Account</Text>
-          <Text style={styles.subtitle}>Join your Family Tree</Text>
+          <Text style={styles.subtitle}>Join your Palakunnil kudumbam</Text>
 
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Full Name</Text>
