@@ -16,6 +16,7 @@ import {
   Alert,
   Share,
   Vibration,
+  ActivityIndicator,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -67,20 +68,99 @@ const { width } = Dimensions.get("window");
 // 🔽 Global image URL cache
 const imageUrlCache = new Map<string, string | null>();
 
-// 🔽 Get image source with cache
-const getImageSource = (member: FamilyMember) => {
-  if (!member.image) return null;
+// 🔽 Member Image Component with local state for reactivity
+const MemberImage = ({
+  member,
+  style,
+  placeholderSize = 24,
+  isDarkMode,
+  themedStyles,
+}: {
+  member: FamilyMember;
+  style: any;
+  placeholderSize?: number;
+  isDarkMode: boolean;
+  themedStyles?: any;
+}) => {
+  const [imgSource, setImgSource] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
 
-  if (typeof member.image === "object") {
-    return member.image;
+  useEffect(() => {
+    let isMounted = true;
+
+    const load = async () => {
+      // 1. If already an object (has uri), use it
+      if (member.image && typeof member.image === "object" && member.image.uri) {
+        if (isMounted) {
+          setImgSource(member.image);
+          setLoading(false);
+        }
+        return;
+      }
+
+      // 2. If null or empty, no image
+      if (!member.image || (typeof member.image !== "string" && typeof member.image !== "object")) {
+        if (isMounted) {
+          setImgSource(null);
+          setLoading(false);
+        }
+        return;
+      }
+
+      // 3. Check cache if it's a string
+      if (typeof member.image === "string") {
+        if (imageUrlCache.has(member.image)) {
+          const cached = imageUrlCache.get(member.image);
+          if (isMounted) {
+            setImgSource(cached ? { uri: cached } : null);
+            setLoading(false);
+          }
+          return;
+        }
+
+        // 4. Fetch from Firebase
+        if (isMounted) setLoading(true);
+        try {
+          const url = await getDownloadURL(ref(storage, `images/${member.image}`));
+          imageUrlCache.set(member.image, url);
+          if (isMounted) setImgSource({ uri: url });
+        } catch (error) {
+          console.warn(`Image not found: ${member.image}`);
+          imageUrlCache.set(member.image, null);
+          if (isMounted) setImgSource(null);
+        } finally {
+          if (isMounted) setLoading(false);
+        }
+      }
+    };
+
+    load();
+    return () => {
+      isMounted = false;
+    };
+  }, [member.image, member.id]);
+
+  if (imgSource) {
+    return <Image source={imgSource} style={style} />;
   }
 
-  const cachedUrl = imageUrlCache.get(member.image);
-  if (cachedUrl) {
-    return { uri: cachedUrl };
+  if (loading) {
+    return (
+      <View style={[style, styles.placeholderImage, { justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="small" color={isDarkMode ? "#9ca3af" : "#6b7280"} />
+      </View>
+    );
   }
 
-  return null;
+  return (
+    <View style={[style, styles.placeholderImage, { justifyContent: 'center', alignItems: 'center' }]}>
+      <MaterialIcons
+        name="person"
+        size={placeholderSize}
+        color={isDarkMode ? "#9ca3af" : "#6b7280"}
+      />
+    </View>
+  );
 };
 
 // 🔽 Member Card Component for Animations
@@ -122,7 +202,6 @@ const MemberCard = ({
     }
   }, [isFavorite]);
 
-  const imageSource = getImageSource(member);
 
   // 🔽 Dynamic Theme Colors
   const accentColor = isDarkMode ? "#e11d48" : "#2563eb"; // Rose (Dark) vs Royal Blue (Light)
@@ -143,23 +222,15 @@ const MemberCard = ({
     >
       <View style={styles.cardContent}>
         <TouchableOpacity onPress={onImagePress}>
-          {imageSource ? (
-            <Image
-              source={imageSource}
-              style={[
-                styles.cardImage,
-                isFavorite && { borderWidth: 2, borderColor: accentColor },
-              ]}
-            />
-          ) : (
-            <View style={[styles.cardImage, styles.placeholderImage]}>
-              <MaterialIcons
-                name="person"
-                size={24}
-                color={isDarkMode ? "#9ca3af" : "#6b7280"}
-              />
-            </View>
-          )}
+          <MemberImage
+            member={member}
+            isDarkMode={isDarkMode}
+            style={[
+              styles.cardImage,
+              isFavorite && { borderWidth: 2, borderColor: accentColor },
+            ]}
+            themedStyles={themedStyles}
+          />
           {isFavorite && (
             <View style={styles.favoriteOverlay}>
               <FontAwesome name="heart" size={16} color={accentColor} />
@@ -379,8 +450,24 @@ export default function App() {
     setFavorites(newFavorites);
   };
 
-  const openImageModal = (memberWithImage: FamilyMember) => {
-    setSelectedImage(memberWithImage.image); // must be { uri: ... }
+  const openImageModal = async (memberWithImage: FamilyMember) => {
+    // Ensure we have a URL before opening
+    let img = memberWithImage.image;
+    if (img && typeof img === "string") {
+      if (imageUrlCache.has(img)) {
+        img = { uri: imageUrlCache.get(img) };
+      } else {
+        try {
+          const url = await getDownloadURL(ref(storage, `images/${img}`));
+          imageUrlCache.set(img, url);
+          img = { uri: url };
+        } catch (e) {
+          img = null;
+        }
+      }
+    }
+
+    setSelectedImage(img); // now it is { uri: ... } or null
     setSelectedImageName(memberWithImage.name);
     setShowImageModal(true);
 
@@ -630,27 +717,7 @@ Favorites: ${favorites.size}`,
   const currentMember = memberStack[memberStack.length - 1];
 
   const pushMember = (member: FamilyMember) => {
-    // 1. Navigate immediately (show placeholder if not cached)
     setMemberStack((prev) => [...prev, member]);
-
-    // 2. Load image in background if needed
-    if (member.image && typeof member.image === "string") {
-      // Check cache synchronously first to avoid duplicate fetch if possible (though loadImage checks too)
-      if (imageUrlCache.has(member.image)) {
-        const cached = imageUrlCache.get(member.image);
-        const updated = { ...member, image: cached ? { uri: cached } : null };
-        // Update the stack item we just pushed
-        setMemberStack((prev) =>
-          prev.map((m) => (m.id === member.id ? updated : m))
-        );
-      } else {
-        loadImageForMember(member).then((updatedMember) => {
-          setMemberStack((prev) =>
-            prev.map((m) => (m.id === member.id ? updatedMember : m))
-          );
-        });
-      }
-    }
   };
 
   const popMember = () => {
@@ -891,30 +958,16 @@ Favorites: ${favorites.size}`,
               {/* Profile */}
               <View style={styles.profileImageContainer}>
                 <TouchableOpacity onPress={() => openImageModal(currentMember)}>
-                  {currentMember.image &&
-                  typeof currentMember.image === "object" ? (
-                    <Image
-                      source={currentMember.image}
-                      style={[
-                        styles.profileImage,
-                        favorites.has(currentMember.id) &&
-                          styles.favoriteProfileImage,
-                      ]}
-                    />
-                  ) : (
-                    <View
-                      style={[
-                        styles.profileImage,
-                        styles.placeholderProfileImage,
-                      ]}
-                    >
-                      <MaterialIcons
-                        name="person"
-                        size={32}
-                        color={isDarkMode ? "#9ca3af" : "#6b7280"}
-                      />
-                    </View>
-                  )}
+                  <MemberImage
+                    member={currentMember}
+                    isDarkMode={isDarkMode}
+                    style={[
+                      styles.profileImage,
+                      favorites.has(currentMember.id) &&
+                        styles.favoriteProfileImage,
+                    ]}
+                    placeholderSize={32}
+                  />
                   {favorites.has(currentMember.id) && (
                     <View style={styles.favoriteProfileOverlay}>
                       <FontAwesome name="heart" size={24} color="#ff6b6b" />
@@ -1047,30 +1100,12 @@ Favorites: ${favorites.size}`,
                       style={styles.childRow}
                       onPress={() => pushMember(currentMember.spouseObj!)}
                     >
-                      {(() => {
-                        const spouseImageSource = getImageSource(
-                          currentMember.spouseObj!
-                        );
-                        return spouseImageSource ? (
-                          <Image
-                            source={spouseImageSource}
-                            style={styles.childImage}
-                          />
-                        ) : (
-                          <View
-                            style={[
-                              styles.childImage,
-                              styles.placeholderChildImage,
-                            ]}
-                          >
-                            <MaterialIcons
-                              name="person"
-                              size={16}
-                              color={isDarkMode ? "#9ca3af" : "#6b7280"}
-                            />
-                          </View>
-                        );
-                      })()}
+                      <MemberImage
+                        member={currentMember.spouseObj}
+                        isDarkMode={isDarkMode}
+                        style={styles.childImage}
+                        placeholderSize={16}
+                      />
                       <View style={styles.childInfo}>
                         <Text style={themedStyles.memberName}>
                           {currentMember.spouseObj.name}
@@ -1104,32 +1139,18 @@ Favorites: ${favorites.size}`,
                     <View style={themedStyles.detailCard}>
                       <Text style={themedStyles.detailLabel}>CHILDREN</Text>
                       {currentMember.children.map((child) => {
-                        const childImageSource = getImageSource(child);
                         return (
                           <TouchableOpacity
                             key={child.id}
                             style={styles.childRow}
                             onPress={() => pushMember(child)}
                           >
-                            {childImageSource ? (
-                              <Image
-                                source={childImageSource}
-                                style={styles.childImage}
-                              />
-                            ) : (
-                              <View
-                                style={[
-                                  styles.childImage,
-                                  styles.placeholderChildImage,
-                                ]}
-                              >
-                                <MaterialIcons
-                                  name="person"
-                                  size={16}
-                                  color={isDarkMode ? "#9ca3af" : "#6b7280"}
-                                />
-                              </View>
-                            )}
+                            <MemberImage
+                              member={child}
+                              isDarkMode={isDarkMode}
+                              style={styles.childImage}
+                              placeholderSize={16}
+                            />
                             <View style={styles.childInfo}>
                               <Text style={themedStyles.memberName}>
                                 {child.name}
