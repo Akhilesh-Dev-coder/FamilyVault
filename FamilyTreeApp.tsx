@@ -25,7 +25,7 @@ import ProgramsScreen from "./ProgramsScreen";
 import { db, auth, storage } from "./firebaseConfig";
 import { collection, getDocs } from "firebase/firestore";
 import { getDownloadURL, ref } from "firebase/storage";
-import { onAuthStateChanged } from "firebase/auth";
+import { onAuthStateChanged, signOut } from "firebase/auth";
 // 🔽 Icons
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -519,6 +519,27 @@ Favorites: ${favorites.size}`,
     );
   };
 
+  const handleLogout = async () => {
+    try {
+      if (Platform.OS === "web") {
+        if (window.confirm("Are you sure you want to log out?")) {
+          await signOut(auth);
+        }
+      } else {
+        Alert.alert(
+          "Log Out",
+          "Are you sure you want to log out?",
+          [
+            { text: "Cancel", style: "cancel" },
+            { text: "Log Out", onPress: () => signOut(auth), style: "destructive" },
+          ]
+        );
+      }
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
+  };
+
   const makeCall = (phone?: string) => {
     if (!phone) return;
     const cleanPhone = phone.replace(/[^0-9+]/g, "");
@@ -782,6 +803,16 @@ Favorites: ${favorites.size}`,
                       color={isDarkMode ? "#fbbf24" : "#059669"}
                     />
                   </Animated.View>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={handleLogout}
+                  style={styles.statsButton}
+                >
+                  <MaterialIcons
+                    name="logout"
+                    size={24}
+                    color={isDarkMode ? "#f87171" : "#ef4444"}
+                  />
                 </TouchableOpacity>
               </View>
             </View>

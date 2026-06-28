@@ -13,6 +13,7 @@ import {
 import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 import { auth, db } from "./firebaseConfig";
+import { hashPassword, getDeterministicAuthPassword } from "./hashUtils";
 
 interface SignUpScreenProps {
   onNavigate: () => void;
@@ -21,7 +22,9 @@ interface SignUpScreenProps {
 
 const SignUpScreen = ({ onNavigate, setIsSigningUp }: SignUpScreenProps) => {
   const [name, setName] = useState("");
+  const [signUpMethod, setSignUpMethod] = useState<"email" | "phone">("email");
   const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -29,8 +32,24 @@ const SignUpScreen = ({ onNavigate, setIsSigningUp }: SignUpScreenProps) => {
   const APP_NAME = "Palakunnil kudumbam";
 
   const handleSignUp = async () => {
-    if (!name.trim() || !email.trim() || !password.trim()) {
+    if (!name.trim() || !password.trim()) {
       Alert.alert("Error", "Please fill in all fields");
+      return;
+    }
+
+    if (signUpMethod === "email" && !email.trim()) {
+      Alert.alert("Error", "Please enter your email");
+      return;
+    }
+
+    if (signUpMethod === "phone" && !phone.trim()) {
+      Alert.alert("Error", "Please enter your phone number");
+      return;
+    }
+
+    const cleanPhone = phone.replace(/\D/g, "");
+    if (signUpMethod === "phone" && cleanPhone.length < 10) {
+      Alert.alert("Error", "Please enter a valid phone number (minimum 10 digits)");
       return;
     }
 
@@ -38,10 +57,13 @@ const SignUpScreen = ({ onNavigate, setIsSigningUp }: SignUpScreenProps) => {
     if (setIsSigningUp) setIsSigningUp(true);
 
     try {
+      const authEmail = signUpMethod === "email" ? email.trim() : `${cleanPhone}@familyvault.local`;
+      const authPassword = signUpMethod === "email" ? password : getDeterministicAuthPassword(cleanPhone);
+
       const userCredential = await createUserWithEmailAndPassword(
         auth,
-        email,
-        password
+        authEmail,
+        authPassword,
       );
       // Update the user's display name
       await updateProfile(userCredential.user, {
@@ -53,13 +75,24 @@ const SignUpScreen = ({ onNavigate, setIsSigningUp }: SignUpScreenProps) => {
         // Explicitly log the UID we are writing to
         console.log("Writing to Firestore for UID:", userCredential.user.uid);
 
-        await setDoc(doc(db, "Users", userCredential.user.uid), {
+        const userDocData: any = {
           name: name,
-          email: email,
+          email: authEmail,
           role: "user",
           createdAt: serverTimestamp(),
           platform: Platform.OS, // Add platform for debugging
-        });
+        };
+
+        if (signUpMethod === "phone") {
+          userDocData.phone = cleanPhone;
+          userDocData.loginMethod = "phone";
+          userDocData.passwordHash = hashPassword(password);
+          userDocData.mustChangePassword = false;
+        } else {
+          userDocData.loginMethod = "email";
+        }
+
+        await setDoc(doc(db, "Users", userCredential.user.uid), userDocData);
 
         console.log("Firestore document created successfully");
 
@@ -72,13 +105,13 @@ const SignUpScreen = ({ onNavigate, setIsSigningUp }: SignUpScreenProps) => {
         Alert.alert(
           "Success",
           "Account created successfully! Please log in with your new credentials.",
-          [{ text: "OK", onPress: onNavigate }]
+          [{ text: "OK", onPress: onNavigate }],
         );
       } catch (firestoreError: any) {
         console.error("Firestore write error:", firestoreError);
         Alert.alert(
           "Database Error",
-          "Account created but profile save failed: " + firestoreError.message
+          "Account created but profile save failed: " + firestoreError.message,
         );
 
         // CRITICAL: If DB write fails, sign out so they don't enter the app with no profile
@@ -98,7 +131,9 @@ const SignUpScreen = ({ onNavigate, setIsSigningUp }: SignUpScreenProps) => {
 
       let errorMessage = "Failed to create account. Please try again.";
       if (error.code === "auth/email-already-in-use") {
-        errorMessage = "This email is already registered.";
+        errorMessage = signUpMethod === "email" 
+          ? "This email is already registered." 
+          : "This phone number is already registered.";
       } else if (error.code === "auth/weak-password") {
         errorMessage = "Password should be at least 6 characters.";
       } else if (error.code === "auth/invalid-email") {
@@ -125,6 +160,22 @@ const SignUpScreen = ({ onNavigate, setIsSigningUp }: SignUpScreenProps) => {
           <Text style={styles.title}>Create Account</Text>
           <Text style={styles.subtitle}>Join your Palakunnil kudumbam</Text>
 
+          {/* Tab Selector */}
+          <View style={styles.tabContainer}>
+            <TouchableOpacity
+              style={[styles.tab, signUpMethod === "email" && styles.activeTab]}
+              onPress={() => setSignUpMethod("email")}
+            >
+              <Text style={[styles.tabText, signUpMethod === "email" && styles.activeTabText]}>Email</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.tab, signUpMethod === "phone" && styles.activeTab]}
+              onPress={() => setSignUpMethod("phone")}
+            >
+              <Text style={[styles.tabText, signUpMethod === "phone" && styles.activeTabText]}>Phone</Text>
+            </TouchableOpacity>
+          </View>
+
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Full Name</Text>
             <TextInput
@@ -137,19 +188,35 @@ const SignUpScreen = ({ onNavigate, setIsSigningUp }: SignUpScreenProps) => {
             />
           </View>
 
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Email</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Enter your email"
-              placeholderTextColor="#9CA3AF"
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-          </View>
+          {signUpMethod === "email" ? (
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Email</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Enter your email"
+                placeholderTextColor="#9CA3AF"
+                value={email}
+                onChangeText={setEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </View>
+          ) : (
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Phone Number</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="e.g. 9876543210"
+                placeholderTextColor="#9CA3AF"
+                value={phone}
+                onChangeText={setPhone}
+                keyboardType="phone-pad"
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </View>
+          )}
 
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Password</Text>
@@ -231,6 +298,37 @@ const styles = StyleSheet.create({
     color: "#6b7280",
     textAlign: "center",
     marginBottom: 24,
+  },
+  tabContainer: {
+    flexDirection: "row",
+    backgroundColor: "#f3f4f6",
+    borderRadius: 12,
+    padding: 4,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: "center",
+    borderRadius: 8,
+  },
+  activeTab: {
+    backgroundColor: "white",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  tabText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#6b7280",
+  },
+  activeTabText: {
+    color: "#2563eb",
   },
   inputGroup: {
     marginBottom: 16,

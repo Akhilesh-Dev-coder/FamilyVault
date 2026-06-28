@@ -15,14 +15,18 @@ import {
   signInWithEmailAndPassword,
   sendPasswordResetEmail,
 } from "firebase/auth";
-import { auth } from "./firebaseConfig";
+import { auth, db } from "./firebaseConfig";
+import { doc, getDoc } from "firebase/firestore";
+import { hashPassword, getDeterministicAuthPassword } from "./hashUtils";
 
 interface LoginScreenProps {
   onNavigate: () => void;
 }
 
 const LoginScreen = ({ onNavigate }: LoginScreenProps) => {
+  const [loginMethod, setLoginMethod] = useState<"email" | "phone">("email");
   const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -32,6 +36,79 @@ const LoginScreen = ({ onNavigate }: LoginScreenProps) => {
   const APP_NAME = "Palakunnil kudumbam";
 
   const handleLogin = async () => {
+    if (loginMethod === "phone") {
+      const cleanPhone = phone.replace(/\D/g, "");
+      if (!cleanPhone || !password.trim()) {
+        Alert.alert("Error", "Please enter both phone number and password");
+        return;
+      }
+
+      setLoading(true);
+      let tempAuthUser: any = null;
+      try {
+        // 1. Authenticate to Firebase Auth first using the deterministic password
+        const authEmail = `${cleanPhone}@familyvault.local`;
+        const authPassword = getDeterministicAuthPassword(cleanPhone);
+        const userCredential = await signInWithEmailAndPassword(auth, authEmail, authPassword);
+        tempAuthUser = userCredential.user;
+
+        // 2. Now that we are authenticated, we can fetch their document from Firestore
+        const userDocRef = doc(db, "Users", tempAuthUser.uid);
+        const userDoc = await getDoc(userDocRef);
+
+        if (!userDoc.exists()) {
+          throw new Error("Profile not found");
+        }
+
+        const userData = userDoc.data();
+        if (userData.suspended) {
+          throw new Error("Your account has been suspended.");
+        }
+        
+        // 3. Verify the entered password against the passwordHash in Firestore
+        const enteredHash = hashPassword(password);
+        if (userData.passwordHash !== enteredHash) {
+          throw new Error("Invalid phone number or password.");
+        }
+
+        // Login succeeds! The auth session remains active.
+      } catch (error: any) {
+        console.error("Phone login error:", error);
+        
+        // If we authenticated but verification failed, sign out immediately
+        try {
+          await auth.signOut();
+        } catch (signOutErr) {
+          console.error("Error signing out after failed verification:", signOutErr);
+        }
+
+        let msg = "Invalid phone number or password.";
+        if (
+          error.code === "auth/user-not-found" || 
+          error.code === "auth/invalid-credential" ||
+          error.code === "auth/wrong-password"
+        ) {
+          msg = "Invalid phone number or password.";
+        } else if (error.message === "Your account has been suspended.") {
+          msg = "Your account has been suspended by an administrator.";
+        } else if (error.message === "Profile not found") {
+          msg = "User profile not found. Please contact support.";
+        } else if (error.code === "auth/too-many-requests") {
+          msg = "Too many failed attempts. Please try again later.";
+        }
+
+        if (Platform.OS === "web") {
+          window.alert(msg);
+        } else {
+          Alert.alert("Login Failed", msg);
+        }
+        setPassword("");
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
     if (!email.trim() || !password.trim()) {
       Alert.alert("Error", "Please enter both email and password");
       return;
@@ -74,7 +151,7 @@ const LoginScreen = ({ onNavigate }: LoginScreenProps) => {
     if (!resetEmail.trim()) {
       Alert.alert(
         "Reset Password",
-        "Please enter your email address to reset your password."
+        "Please enter your email address to reset your password.",
       );
       return;
     }
@@ -88,8 +165,8 @@ const LoginScreen = ({ onNavigate }: LoginScreenProps) => {
         setTimeout(
           () =>
             reject(new Error("Request timed out (10s). Check your network.")),
-          10000
-        )
+          10000,
+        ),
       );
 
       await Promise.race([
@@ -100,14 +177,14 @@ const LoginScreen = ({ onNavigate }: LoginScreenProps) => {
       console.log("sendPasswordResetEmail success");
       if (Platform.OS === "web") {
         window.alert(
-          "Email Sent! Check your email for a link to reset your password."
+          "Email Sent! Check your email for a link to reset your password.",
         );
         setShowForgotModal(false);
       } else {
         Alert.alert(
           "Email Sent",
           "Check your email for a link to reset your password.",
-          [{ text: "OK", onPress: () => setShowForgotModal(false) }]
+          [{ text: "OK", onPress: () => setShowForgotModal(false) }],
         );
       }
       setResetEmail("");
@@ -133,19 +210,51 @@ const LoginScreen = ({ onNavigate }: LoginScreenProps) => {
         <Text style={styles.title}>{APP_NAME}</Text>
         <Text style={styles.subtitle}>Sign in to your account</Text>
 
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Email</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Enter your email"
-            placeholderTextColor="#9CA3AF"
-            value={email}
-            onChangeText={setEmail}
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
+        {/* Tab Selector */}
+        <View style={styles.tabContainer}>
+          <TouchableOpacity
+            style={[styles.tab, loginMethod === "email" && styles.activeTab]}
+            onPress={() => setLoginMethod("email")}
+          >
+            <Text style={[styles.tabText, loginMethod === "email" && styles.activeTabText]}>Email</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tab, loginMethod === "phone" && styles.activeTab]}
+            onPress={() => setLoginMethod("phone")}
+          >
+            <Text style={[styles.tabText, loginMethod === "phone" && styles.activeTabText]}>Phone</Text>
+          </TouchableOpacity>
         </View>
+
+        {loginMethod === "email" ? (
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Email</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Enter your email"
+              placeholderTextColor="#9CA3AF"
+              value={email}
+              onChangeText={setEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </View>
+        ) : (
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Phone Number</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="e.g. 9876543210"
+              placeholderTextColor="#9CA3AF"
+              value={phone}
+              onChangeText={setPhone}
+              keyboardType="phone-pad"
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </View>
+        )}
 
         <View style={styles.inputGroup}>
           <Text style={styles.label}>Password</Text>
@@ -175,8 +284,17 @@ const LoginScreen = ({ onNavigate }: LoginScreenProps) => {
         <TouchableOpacity
           style={styles.forgotButton}
           onPress={() => {
-            setResetEmail(email); // Pre-fill with current email if typed
-            setShowForgotModal(true);
+            if (loginMethod === "phone") {
+              const msg = "Please contact the administrator to reset your password. The administrator will provide a temporary password.";
+              if (Platform.OS === "web") {
+                window.alert(msg);
+              } else {
+                Alert.alert("Reset Password", msg);
+              }
+            } else {
+              setResetEmail(email); // Pre-fill with current email if typed
+              setShowForgotModal(true);
+            }
           }}
         >
           <Text style={styles.forgotText}>Forgot Password?</Text>
@@ -284,6 +402,37 @@ const styles = StyleSheet.create({
     color: "#6b7280",
     textAlign: "center",
     marginBottom: 24,
+  },
+  tabContainer: {
+    flexDirection: "row",
+    backgroundColor: "#f3f4f6",
+    borderRadius: 12,
+    padding: 4,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: "center",
+    borderRadius: 8,
+  },
+  activeTab: {
+    backgroundColor: "white",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  tabText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#6b7280",
+  },
+  activeTabText: {
+    color: "#2563eb",
   },
   inputGroup: {
     marginBottom: 16,

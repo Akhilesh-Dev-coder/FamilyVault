@@ -20,12 +20,14 @@ import {
 import FamilyTreeApp from "./FamilyTreeApp";
 import LoginScreen from "./LoginScreen";
 import SignUpScreen from "./SignUpScreen";
+import ChangePasswordScreen from "./ChangePasswordScreen";
 
 export default function App() {
   const [user, setUser] = useState<any>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [isLoginView, setIsLoginView] = useState(true);
   const [isSigningUp, setIsSigningUp] = useState(false);
+  const [mustChangePassword, setMustChangePassword] = useState(false);
 
   // 🔑 Load icon fonts (MANDATORY for Expo Web)
   const [fontsLoaded] = useFonts({
@@ -76,7 +78,14 @@ export default function App() {
               );
               await signOut(auth);
               setUser(null);
+              setMustChangePassword(false);
             } else {
+              // Check if they need to change their password (temp password set)
+              if (userData.mustChangePassword) {
+                setMustChangePassword(true);
+              } else {
+                setMustChangePassword(false);
+              }
               // Valid user
               setUser(currentUser);
             }
@@ -90,6 +99,7 @@ export default function App() {
             // But simpler is to kick them out.
             await signOut(auth);
             setUser(null);
+            setMustChangePassword(false);
           }
         } catch (error) {
           console.error("Error fetching user profile:", error);
@@ -101,6 +111,7 @@ export default function App() {
         }
       } else {
         setUser(null);
+        setMustChangePassword(false);
       }
       setAuthLoading(false);
     });
@@ -134,7 +145,11 @@ export default function App() {
   return (
     <SafeAreaProvider>
       {user ? (
-        <FamilyTreeApp />
+        mustChangePassword ? (
+          <ChangePasswordScreen onPasswordChanged={() => setMustChangePassword(false)} />
+        ) : (
+          <FamilyTreeApp />
+        )
       ) : isLoginView ? (
         <LoginScreen onNavigate={() => setIsLoginView(false)} />
       ) : (
