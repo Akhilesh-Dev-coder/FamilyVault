@@ -10,8 +10,8 @@ import {
   Platform,
   ScrollView,
 } from "react-native";
-import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
-import { doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { createUserWithEmailAndPassword, updateProfile, signInWithEmailAndPassword } from "firebase/auth";
+import { doc, setDoc, serverTimestamp, getDoc } from "firebase/firestore";
 import { auth, db } from "./firebaseConfig";
 import { hashPassword, getDeterministicAuthPassword } from "./hashUtils";
 
@@ -31,25 +31,38 @@ const SignUpScreen = ({ onNavigate, setIsSigningUp }: SignUpScreenProps) => {
 
   const APP_NAME = "Palakunnil kudumbam";
 
+  const showAlert = (title: string, message: string, onPress?: () => void) => {
+    if (Platform.OS === "web") {
+      window.alert(`${title}: ${message}`);
+      if (onPress) onPress();
+    } else {
+      if (onPress) {
+        Alert.alert(title, message, [{ text: "OK", onPress }]);
+      } else {
+        Alert.alert(title, message);
+      }
+    }
+  };
+
   const handleSignUp = async () => {
     if (!name.trim() || !password.trim()) {
-      Alert.alert("Error", "Please fill in all fields");
+      showAlert("Error", "Please fill in all fields");
       return;
     }
 
     if (signUpMethod === "email" && !email.trim()) {
-      Alert.alert("Error", "Please enter your email");
+      showAlert("Error", "Please enter your email");
       return;
     }
 
     if (signUpMethod === "phone" && !phone.trim()) {
-      Alert.alert("Error", "Please enter your phone number");
+      showAlert("Error", "Please enter your phone number");
       return;
     }
 
     const cleanPhone = phone.replace(/\D/g, "");
     if (signUpMethod === "phone" && cleanPhone.length < 10) {
-      Alert.alert("Error", "Please enter a valid phone number (minimum 10 digits)");
+      showAlert("Error", "Please enter a valid phone number (minimum 10 digits)");
       return;
     }
 
@@ -102,17 +115,23 @@ const SignUpScreen = ({ onNavigate, setIsSigningUp }: SignUpScreenProps) => {
         // Allow the App.tsx listener to proceed normally now (user is null anyway)
         if (setIsSigningUp) setIsSigningUp(false);
 
-        Alert.alert(
+        showAlert(
           "Success",
           "Account created successfully! Please log in with your new credentials.",
-          [{ text: "OK", onPress: onNavigate }],
+          onNavigate
         );
       } catch (firestoreError: any) {
         console.error("Firestore write error:", firestoreError);
-        Alert.alert(
-          "Database Error",
-          "Account created but profile save failed: " + firestoreError.message,
-        );
+
+        // Clean up the Auth user if Firestore write failed so the email/phone is not locked up
+        try {
+          if (userCredential.user) {
+            await userCredential.user.delete();
+            console.log("Cleaned up orphaned Firebase Auth account successfully.");
+          }
+        } catch (deleteError) {
+          console.error("Failed to delete orphaned Auth user:", deleteError);
+        }
 
         // CRITICAL: If DB write fails, sign out so they don't enter the app with no profile
         try {
@@ -121,12 +140,64 @@ const SignUpScreen = ({ onNavigate, setIsSigningUp }: SignUpScreenProps) => {
           console.error("Sign out failed", e);
         }
 
+        showAlert(
+          "Database Error",
+          "Account creation failed: " + firestoreError.message
+        );
+
         if (setIsSigningUp) setIsSigningUp(false);
         return; // Stop execution
       }
       // Auth state listener in App.tsx will handle the rest
     } catch (error: any) {
       console.error("Sign Up error:", error);
+
+      // Self-healing for phone registration if the Auth account exists but Firestore profile is missing
+      if (error.code === "auth/email-already-in-use" && signUpMethod === "phone") {
+        try {
+          const authEmail = `${cleanPhone}@familyvault.local`;
+          const authPassword = getDeterministicAuthPassword(cleanPhone);
+          
+          // Sign in using the deterministic credentials to check status
+          const userCredential = await signInWithEmailAndPassword(auth, authEmail, authPassword);
+          const userDocRef = doc(db, "Users", userCredential.user.uid);
+          const userDoc = await getDoc(userDocRef);
+          
+          if (!userDoc.exists()) {
+            console.log("Self-healing: Auth account exists but Firestore profile is missing. Re-creating profile...");
+            
+            const userDocData: any = {
+              name: name,
+              email: authEmail,
+              role: "user",
+              createdAt: serverTimestamp(),
+              platform: Platform.OS,
+              phone: cleanPhone,
+              loginMethod: "phone",
+              passwordHash: hashPassword(password),
+              mustChangePassword: false,
+            };
+            
+            await setDoc(userDocRef, userDocData);
+            await auth.signOut();
+            
+            if (setIsSigningUp) setIsSigningUp(false);
+            
+            showAlert(
+              "Success",
+              "Account recovered and registered successfully! Please log in with your credentials.",
+              onNavigate
+            );
+            return;
+          } else {
+            // Profile actually exists, so it's a real duplicate registration
+            await auth.signOut();
+          }
+        } catch (healError: any) {
+          console.error("Self-healing registration failed:", healError);
+        }
+      }
+
       if (setIsSigningUp) setIsSigningUp(false);
 
       let errorMessage = "Failed to create account. Please try again.";
@@ -141,7 +212,7 @@ const SignUpScreen = ({ onNavigate, setIsSigningUp }: SignUpScreenProps) => {
       } else if (error.code === "permission-denied") {
         errorMessage = "Firestore permission denied. Check security rules.";
       }
-      Alert.alert("Registration Failed", errorMessage + " " + error.message);
+      showAlert("Registration Failed", errorMessage + " " + error.message);
     } finally {
       // Check if mounted before updating state to avoid warnings
       setLoading(false);
