@@ -16,7 +16,7 @@ import {
   sendPasswordResetEmail,
 } from "firebase/auth";
 import { auth, db } from "./firebaseConfig";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, collection, addDoc, serverTimestamp, updateDoc } from "firebase/firestore";
 import { hashPassword, getDeterministicAuthPassword } from "./hashUtils";
 
 interface LoginScreenProps {
@@ -32,6 +32,7 @@ const LoginScreen = ({ onNavigate }: LoginScreenProps) => {
   const [showPassword, setShowPassword] = useState(false);
   const [showForgotModal, setShowForgotModal] = useState(false);
   const [resetEmail, setResetEmail] = useState("");
+  const [resetPhone, setResetPhone] = useState("");
 
   const APP_NAME = "Palakunnil kudumbam";
 
@@ -201,6 +202,80 @@ const LoginScreen = ({ onNavigate }: LoginScreenProps) => {
     }
   };
 
+  const handlePhoneResetRequest = async () => {
+    console.log("handlePhoneResetRequest triggered with:", resetPhone);
+    const cleanPhone = resetPhone.replace(/\D/g, "");
+    if (!cleanPhone.trim() || cleanPhone.length < 10) {
+      const errorMsg = "Please enter a valid mobile number (minimum 10 digits).";
+      if (Platform.OS === "web") {
+        window.alert(errorMsg);
+      } else {
+        Alert.alert("Reset Password", errorMsg);
+      }
+      return;
+    }
+
+    setResetLoading(true);
+    let authenticated = false;
+    try {
+      // 1. Authenticate to Firebase Auth first using the deterministic password
+      console.log("Authenticating to Firebase Auth...");
+      const authEmail = `${cleanPhone}@familyvault.local`;
+      const authPassword = getDeterministicAuthPassword(cleanPhone);
+      const userCredential = await signInWithEmailAndPassword(auth, authEmail, authPassword);
+      const tempAuthUser = userCredential.user;
+      authenticated = true;
+
+      // 2. Update user's own document in the "Users" collection (now that we are authenticated, permissions will pass)
+      console.log("Adding reset request flags to User document...");
+      const userDocRef = doc(db, "Users", tempAuthUser.uid);
+      await updateDoc(userDocRef, {
+        resetRequested: true,
+        resetRequestedAt: serverTimestamp(),
+      });
+      console.log("User reset flags updated successfully");
+
+      const successMsg = "Your request for a temporary password has been sent to the administrator. Please contact your administrator or check back soon.";
+      if (Platform.OS === "web") {
+        window.alert(successMsg);
+        setShowForgotModal(false);
+      } else {
+        Alert.alert(
+          "Request Sent",
+          successMsg,
+          [{ text: "OK", onPress: () => setShowForgotModal(false) }],
+        );
+      }
+      setResetPhone("");
+    } catch (error: any) {
+      console.error("Phone reset request error", error);
+      let msg = error.message || "Failed to send reset request.";
+      if (
+        error.code === "auth/user-not-found" ||
+        error.code === "auth/invalid-credential" ||
+        error.code === "auth/wrong-password"
+      ) {
+        msg = "This phone number is not registered in the system.";
+      }
+      
+      if (Platform.OS === "web") {
+        window.alert("Error: " + msg);
+      } else {
+        Alert.alert("Error", msg);
+      }
+    } finally {
+      // Always sign out if we authenticated to avoid keeping the session
+      if (authenticated) {
+        try {
+          await auth.signOut();
+        } catch (signOutErr) {
+          console.error("Error signing out after reset request:", signOutErr);
+        }
+      }
+      setResetLoading(false);
+    }
+  };
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -285,12 +360,8 @@ const LoginScreen = ({ onNavigate }: LoginScreenProps) => {
           style={styles.forgotButton}
           onPress={() => {
             if (loginMethod === "phone") {
-              const msg = "Please contact the administrator to reset your password. The administrator will provide a temporary password.";
-              if (Platform.OS === "web") {
-                window.alert(msg);
-              } else {
-                Alert.alert("Reset Password", msg);
-              }
+              setResetPhone(phone); // Pre-fill with current phone if typed
+              setShowForgotModal(true);
             } else {
               setResetEmail(email); // Pre-fill with current email if typed
               setShowForgotModal(true);
@@ -324,18 +395,26 @@ const LoginScreen = ({ onNavigate }: LoginScreenProps) => {
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Reset Password</Text>
             <Text style={styles.modalSubtitle}>
-              Enter your email to receive a password reset link.
+              {loginMethod === "phone"
+                ? "Enter your mobile number to request a temporary password from the administrator."
+                : "Enter your email to receive a password reset link."}
             </Text>
 
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>Email</Text>
+              <Text style={styles.label}>
+                {loginMethod === "phone" ? "Phone Number" : "Email"}
+              </Text>
               <TextInput
                 style={styles.input}
-                placeholder="Enter your email"
+                placeholder={
+                  loginMethod === "phone"
+                    ? "Enter your mobile number"
+                    : "Enter your email"
+                }
                 placeholderTextColor="#9CA3AF"
-                value={resetEmail}
-                onChangeText={setResetEmail}
-                keyboardType="email-address"
+                value={loginMethod === "phone" ? resetPhone : resetEmail}
+                onChangeText={loginMethod === "phone" ? setResetPhone : setResetEmail}
+                keyboardType={loginMethod === "phone" ? "phone-pad" : "email-address"}
                 autoCapitalize="none"
                 autoCorrect={false}
               />
@@ -356,11 +435,15 @@ const LoginScreen = ({ onNavigate }: LoginScreenProps) => {
                   styles.modalSendButton,
                   resetLoading && styles.buttonDisabled,
                 ]}
-                onPress={handleForgotPassword}
+                onPress={loginMethod === "phone" ? handlePhoneResetRequest : handleForgotPassword}
                 disabled={resetLoading}
               >
                 <Text style={styles.buttonText}>
-                  {resetLoading ? "Sending..." : "Send Link"}
+                  {resetLoading
+                    ? "Sending..."
+                    : loginMethod === "phone"
+                    ? "Request Reset"
+                    : "Send Link"}
                 </Text>
               </TouchableOpacity>
             </View>
